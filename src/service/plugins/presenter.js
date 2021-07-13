@@ -2,15 +2,17 @@
 
 const GObject = imports.gi.GObject;
 
-const PluginsBase = imports.service.plugins.base;
+const Components = imports.service.components;
+const PluginBase = imports.service.plugin;
 
 
 var Metadata = {
     label: _('Presentation'),
+    description: _('Use the paired device as a presenter'),
     id: 'org.gnome.Shell.Extensions.GSConnect.Plugin.Presenter',
     incomingCapabilities: ['kdeconnect.presenter'],
     outgoingCapabilities: [],
-    actions: {}
+    actions: {},
 };
 
 
@@ -20,13 +22,13 @@ var Metadata = {
  * https://github.com/KDE/kdeconnect-android/tree/master/src/org/kde/kdeconnect/Plugins/PresenterPlugin/
  */
 var Plugin = GObject.registerClass({
-    GTypeName: 'GSConnectPresenterPlugin'
-}, class Plugin extends PluginsBase.Plugin {
+    GTypeName: 'GSConnectPresenterPlugin',
+}, class Plugin extends PluginBase.Plugin {
 
     _init(device) {
         super._init(device, 'presenter');
 
-        this._input = this.service.components.get('input');
+        this._input = Components.acquire('input');
     }
 
     handlePacket(packet) {
@@ -40,5 +42,11 @@ var Plugin = GObject.registerClass({
             // pointer instead of showing an arbitrary window.
         }
     }
-});
 
+    destroy() {
+        if (this._input !== undefined)
+            this._input = Components.release('input');
+
+        super.destroy();
+    }
+});

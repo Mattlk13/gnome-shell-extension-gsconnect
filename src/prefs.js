@@ -6,19 +6,18 @@ const Gtk = imports.gi.Gtk;
 
 // Bootstrap
 const Extension = imports.misc.extensionUtils.getCurrentExtension();
-Extension.imports._gsconnect;
-
+const Utils = Extension.imports.shell.utils;
 
 function init() {
-    gsconnect.installService();
+    Utils.installService();
 }
 
 function buildPrefsWidget() {
     // Destroy the window once the mainloop starts
-    let widget = new Gtk.Box();
+    const widget = new Gtk.Box();
 
     GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
-        widget.get_toplevel().destroy();
+        widget.get_root().destroy();
         return false;
     });
 

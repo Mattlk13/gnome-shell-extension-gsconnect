@@ -5,13 +5,14 @@ only find it useful, but that you think there's something that could be done to
 make it more useful, or useful to more people.
 
 The goal is to create an implementation of KDE Connect that integrates with the
-GNOME desktop more than is appropriate for the original implementation, not just
-duplicating its functionality. The [GNOME Shell Design Principles][design] and
-[GNOME Human Interface Guidelines][hig] are followed whenever appropriate.
+GNOME desktop more than is appropriate for the original implementation.
 
 ## Code of Conduct
 
-Stay on topic. This applies to what you think, say, and do.
+While taking part in this project, all that is required is to stay on topic.
+
+Note that you are still bound by the Code of Conduct for whichever platform you
+use to access the project repository.
 
 ## Overview
 
@@ -22,101 +23,140 @@ and it will be reviewed.
 
 ### Code Guidelines
 
-* Code SHOULD be written in [GJS][gjs] if at all possible
+* Code MUST be written in [GJS][gjs] if at all possible
 
-  Almost all of the GNOME API is available through introspection, however in the
-  few cases it is not Python is acceptable.
-  
-* Code MUST NOT be written in a pre-compiled language
+  Obvious exceptions are code that help integrate with other programs, like the
+  Nautilus extension.
 
-  The extension is distributed as-is to users via the GNOME Shell Extensions
-  website and must not include architecture dependant code or binaries.
-  
 * Code MUST run anywhere GNOME Shell runs
 
   It is acceptable and sometimes necessary to use resources that may be specific
   to Linux, but fallbacks must be available for other systems like BSD. Virtual
   machines may be supported, but not at any expense to real systems.
-  
+
 * Code MUST NOT break compatibility with the KDE Connect project
 
   Under no circumstances may code break protocol compatibility or introduce new
   protocol features. Any protocol related discussion must happen directly with
   the KDE Connect team and changes or additions are subject to their approval.
-  
+
 ### Code Style
 
-GSConnect ships with an ESLint file, which run on any committed code by the CI
-and can be run on code simply with `eslint src/`. When in doubt, copy existing
-style. A short example:
+GSConnect ships with an ESLint file, which is run on all code by the CI and can
+be run on code simply with `eslint src/`. When in doubt, copy the existing code
+style.
 
-```js
-// ES6 Syntax and Classes
-class Foo extends Bar {
+## Developing
 
-    // 4-space indents and 80-character lines
-    constructor() {
-    }
+### Architecture
 
-    // Properties first, only use GProperties when necessary
-    get baz() {
-        // _private and __implementation prefixes
-        return this._baz;
-    }
+GSConnect is composed of three relatively distinct components:
 
-    // Spaces between assigments and use %null instead of %undefined
-    qux(quz = null) {
-        // Guard clauses can be single-line
-        if (!quz) return;
+* Service (`/service`)
 
-        // Otherwise, even single statements should be in blocks
-        if (some_conditional) {
-            // camelCase naming, unless sublcassing a GObject
-            doSomething();
-        }
-    }
-
-    // Prefer async functions over Promises, if possible
-    async doSomething() {
-        try {
-            throw new Error();
-        } catch (e) {
-            // Always catch and call `logError()` or manually reject the error
-            return Promise.reject(e);
-        }
-    }
-}
-// End files with a newline (\n)
-```
-
-### Developer Tool
-
-GSConnect ships with a development tool, although it is now hidden from users
-due to the confusion it caused. This is not guaranteed to ever work and should
-not be marked for translation. It can be started with `gapplication`:
-
-    $ gapplication action org.gnome.Shell.Extensions.GSConnect devel
+  The service runs as a separate process in the background and does all the
+  heavy lifting, including connecting and communicating with remote devices. It
+  also exposes several DBus interfaces.
   
-### A Note About Template Strings
+* Shell Extension (`extension.js`, `/shell`)
 
-JavaScript template literals are not handled well by gettext, like in the case
-`` `<b>Breaks!</b>` ``. Once you have committed your changes and are about to
-push, run the meson target for the POT file to confirm it still works:
+  The GNOME Shell extension controls starting and stopping the service, and
+  consumes the DBus interfaces exposed by the service. It also helps GSConnect
+  to integrate into GNOME Shell.
+  
+* Preferences (`gsconnect-preferences`, `/preferences`)
+
+  Unlike most extensions, GSConnect has it's own process for configuring the
+  service and devices, which also communicates with the service over DBus.
+  
+### Building and Installing
+
+GSConnect uses a [`meson`][meson] build system which can accomodate system or
+user installs. Typically, GSConnect should be developed and installed as a user
+extension, while support for system installs exists primarily for distributions
+that want to package GSConnect.
+
+#### User Install
+
+When installing as a user extension, GSConnect will try its best to detect
+necessary paths and automatically install required files required for the
+service to run. The example below will build a user extension ZIP, then install
+it:
 
 ```sh
-ninja -C _build/ org.gnome.Shell.Extensions.GSConnect-pot 
-ninja: Entering directory `_build/'
-[0/1] Running external command org.gnome.Shell.Extensions.GSConnect-pot.
-src/extension.js:396: warning: RegExp literal terminated too early
+$ meson _build
+$ ninja -C _build install-zip
 ```
 
-Note that error messages might be incorrect and the line number earlier in the
-file than is claimed. Adjust the code to use concatentation with `+` or `join()`
-until it succeeds. Then discard the POT file changes and amend your commit:
+Use the `make-zip` target instead to simple build a distributable ZIP, which
+will be output as `_build/gsconnect@andyholmes.github.io.zip`:
 
 ```sh
-git checkout -- po/org.gnome.Shell.Extensions.GSConnect.pot
-git commit --amend --no-edit
+$ meson _build
+$ ninja -C _build make-zip
+```
+
+#### System Install
+
+When installing as a system extension, the build must be configured to ensure
+GSConnect can function properly when run (details in `meson_options.txt`). Below
+is a typical example for Fedora:
+
+```sh
+$ meson --prefix=/usr \
+        --libdir=lib/ \
+        -Dgnome_shell_libdir=/usr/lib64/ \
+        -Dfirewalld=true \
+        -Dpost_install=true \
+        _build
+$ ninja -C _build install
+```
+
+### Typical Workflow
+
+The typical workflow for developing GSConnect will mainly involve working on the
+service. First build and install the extension:
+
+```sh
+$ meson _build
+$ ninja -C _build install-zip
+```
+    
+Next restart GNOME Shell and enable the extension. While developing you should
+enable debugging output and watch the output with `journalctl`:
+
+```sh
+$ dconf write /org/gnome/shell/extensions/gsconnect/debug true
+$ journalctl -f -o cat /usr/bin/gjs
+```
+
+After making changes to the service, you should run the `install-zip` target
+again. The service will automatically restart and there is no need to restart
+GNOME Shell unless you have made changes to the shell extension:
+
+```sh
+$ ninja -C _build install-zip
+```
+
+#### Preferences
+
+When working on the Preferences application, you must close and reopen the
+window after running the `install-zip` target. You can use `journalctl` to watch
+the output or if it's more convenient simply run the application from the shell:
+
+```sh
+$ cd ~/.local/share/gnome-shell/extensions/gsconnect@andyholmes.github.io
+$ ./gsconnect-preferences
+```
+
+#### Shell Extension
+
+When developing the Shell extension, you must restart GNOME Shell after making
+any changes. Note that the `debug()` function is not available in the Shell
+extension and you should watch `gnome-shell` with `journalctl` instead of GJS:
+
+```sh
+$ journalctl -f -o cat /usr/bin/gnome-shell
 ```
 
 ## Questions
@@ -138,4 +178,6 @@ discussion and mark the Pull Request as a fix for it.
 [issue]: https://github.com/andyholmes/gnome-shell-extension-gsconnect/issues
 [pr]: https://github.com/GNOME/gnome-shell/pulls
 [gjs]: https://gitlab.gnome.org/GNOME/gjs/wikis/home
+
+[meson]: https://mesonbuild.com/
 

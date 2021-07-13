@@ -1,22 +1,22 @@
 'use strict';
 
-const Gdk = imports.gi.Gdk;
 const GObject = imports.gi.GObject;
-const Gtk = imports.gi.Gtk;
 
-const PluginsBase = imports.service.plugins.base;
+const Components = imports.service.components;
+const PluginBase = imports.service.plugin;
 
 
 var Metadata = {
     label: _('Clipboard'),
+    description: _('Share the clipboard content'),
     id: 'org.gnome.Shell.Extensions.GSConnect.Plugin.Clipboard',
     incomingCapabilities: [
         'kdeconnect.clipboard',
-        'kdeconnect.clipboard.connect'
+        'kdeconnect.clipboard.connect',
     ],
     outgoingCapabilities: [
         'kdeconnect.clipboard',
-        'kdeconnect.clipboard.connect'
+        'kdeconnect.clipboard.connect',
     ],
     actions: {
         clipboardPush: {
@@ -25,7 +25,7 @@ var Metadata = {
 
             parameter_type: null,
             incoming: [],
-            outgoing: ['kdeconnect.clipboard']
+            outgoing: ['kdeconnect.clipboard'],
         },
         clipboardPull: {
             label: _('Clipboard Pull'),
@@ -33,9 +33,9 @@ var Metadata = {
 
             parameter_type: null,
             incoming: ['kdeconnect.clipboard'],
-            outgoing: []
-        }
-    }
+            outgoing: [],
+        },
+    },
 };
 
 
@@ -45,26 +45,21 @@ var Metadata = {
  */
 var Plugin = GObject.registerClass({
     GTypeName: 'GSConnectClipboardPlugin',
-}, class Plugin extends PluginsBase.Plugin {
+}, class Plugin extends PluginBase.Plugin {
 
     _init(device) {
         super._init(device, 'clipboard');
 
-        try {
-            this._clipboard = this.service.components.get('clipboard');
+        this._clipboard = Components.acquire('clipboard');
 
-            // Watch local clipboard for changes
-            this._textChangedId = this._clipboard.connect(
-                'notify::text',
-                this._onLocalClipboardChanged.bind(this)
-            );
-        } catch (e) {
-            this.destroy();
-            throw e;
-        }
+        // Watch local clipboard for changes
+        this._textChangedId = this._clipboard.connect(
+            'notify::text',
+            this._onLocalClipboardChanged.bind(this)
+        );
 
         // Buffer content to allow selective sync
-        this._localBuffer = null;
+        this._localBuffer = this._clipboard.text;
         this._localTimestamp = 0;
         this._remoteBuffer = null;
     }
@@ -78,15 +73,15 @@ var Plugin = GObject.registerClass({
         if (!this.settings.get_boolean('send-content'))
             return;
 
-        if (this._localBuffer === null && this._localTimestamp == 0)
+        if (this._localBuffer === null && this._localTimestamp === 0)
             return;
 
         this.device.sendPacket({
             type: 'kdeconnect.clipboard.connect',
             body: {
                 content: this._localBuffer,
-                timestamp: this._localTimestamp
-            }
+                timestamp: this._localTimestamp,
+            },
         });
     }
 
@@ -111,12 +106,11 @@ var Plugin = GObject.registerClass({
 
     _handleConnectContent(packet) {
         if (packet.body.hasOwnProperty('timestamp') &&
-            packet.body.timestamp > this._localTimestamp) {
+            packet.body.timestamp > this._localTimestamp)
             this._onRemoteClipboardChanged(packet.body.content);
-        }
     }
 
-    /**
+    /*
      * Store the local clipboard content and forward it if enabled
      */
     _onLocalClipboardChanged(clipboard, pspec) {
@@ -127,7 +121,7 @@ var Plugin = GObject.registerClass({
             this.clipboardPush();
     }
 
-    /**
+    /*
      * Store the remote clipboard content and apply it if enabled
      */
     _onRemoteClipboardChanged(text) {
@@ -154,8 +148,8 @@ var Plugin = GObject.registerClass({
                 this.device.sendPacket({
                     type: 'kdeconnect.clipboard',
                     body: {
-                        content: this._localBuffer
-                    }
+                        content: this._localBuffer,
+                    },
                 });
             }
         }
@@ -174,10 +168,11 @@ var Plugin = GObject.registerClass({
     }
 
     destroy() {
-        if (this._clipboard && this._textChangedId)
+        if (this._clipboard && this._textChangedId) {
             this._clipboard.disconnect(this._textChangedId);
+            this._clipboard = Components.release('clipboard');
+        }
 
         super.destroy();
     }
 });
-
